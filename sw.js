@@ -1,13 +1,19 @@
 /* CATAT UANG — service worker (sw.js)
-   1. Menyimpan tampilan aplikasi agar terbuka cepat dan tetap bisa dibuka saat offline.
+   1. File aplikasi selalu diambil versi terbarunya dari internet; salinan tersimpan dipakai saat offline/lambat.
    2. Menerima bukti transaksi yang dibagikan dari aplikasi bank (menu "Bagikan").
    Data transaksi TIDAK lewat sini; itu langsung ke Google Apps Script. */
-const VERSI = 'catat-uang-v3';
+const VERSI = 'catat-uang-v4';
 const KIRIMAN = 'catat-uang-kiriman';
 const INTI = ['./', './index.html', './app.js', './struk.js', './manifest.json', './icon-192.png', './icon-512.png'];
+const BATAS_TUNGGU = 4000; // ms; lebih lama dari ini, pakai salinan tersimpan dulu
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSI).then((c) => c.addAll(INTI)).then(() => self.skipWaiting()));
+  // cache: 'reload' = abaikan salinan lama di browser/CDN, ambil langsung dari server
+  e.waitUntil(
+    caches.open(VERSI)
+      .then((c) => c.addAll(INTI.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {
@@ -34,6 +40,30 @@ async function terimaKiriman(req) {
   }
 }
 
+/* File aplikasi: internet dulu (selalu versi terbaru), salinan tersimpan bila offline atau terlalu lama */
+async function internetDulu(url) {
+  const cache = await caches.open(VERSI);
+  const kunci = url.origin + url.pathname;
+  const ambil = fetch(url.href, { cache: 'no-cache', credentials: 'same-origin' }).then((res) => {
+    if (res && res.ok) cache.put(kunci, res.clone());
+    return res;
+  });
+  const tersimpan = await cache.match(kunci);
+  if (!tersimpan) return ambil;
+  const telat = new Promise((ok) => setTimeout(() => ok(tersimpan), BATAS_TUNGGU));
+  return Promise.race([ambil.catch(() => tersimpan), telat]);
+}
+
+/* Pustaka dari CDN (nama berversi, isinya tidak berubah): salinan tersimpan dulu */
+async function simpananDulu(req) {
+  const cache = await caches.open(VERSI);
+  const tersimpan = await cache.match(req);
+  if (tersimpan) return tersimpan;
+  const res = await fetch(req);
+  if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());
+  return res;
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
@@ -44,18 +74,8 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   if (req.method !== 'GET') return;                       // kiriman data ke spreadsheet: langsung ke jaringan
-  const pustaka = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdn.jsdelivr.net'].includes(url.hostname);
-  if (!milikKita && !pustaka) return;
-
-  // Tampilkan dari simpanan dulu (cepat), lalu perbarui simpanan di belakang layar
-  e.respondWith(
-    caches.open(VERSI).then(async (cache) => {
-      const tersimpan = await cache.match(req, { ignoreSearch: milikKita });
-      const jaringan = fetch(req).then((res) => {
-        if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());
-        return res;
-      }).catch(() => tersimpan);
-      return tersimpan || jaringan;
-    })
-  );
+  if (milikKita) { e.respondWith(internetDulu(url)); return; }
+  if (['fonts.googleapis.com', 'fonts.gstatic.com', 'cdn.jsdelivr.net'].includes(url.hostname)) {
+    e.respondWith(simpananDulu(req));
+  }
 });

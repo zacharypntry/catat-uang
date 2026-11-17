@@ -273,13 +273,51 @@
     clearTimeout(timerTidur);
     laporProgres = onProgres || (() => {});
     const [w, kanvas] = await Promise.all([siapkanPekerja(), siapkanGambar(file)]);
-    const hasil = await w.recognize(kanvas);
+    const hasil = await w.recognize(kanvas, {}, { text: true, blocks: true });
     // Lepas memori bila 2 menit tidak dipakai
     timerTidur = setTimeout(() => { if (pekerja) { pekerja.then((x) => x.terminate()).catch(() => {}); pekerja = null; } }, 120000);
-    return hasil.data.text || '';
+    return teksTanpaSenKecil(hasil.data) || hasil.data.text || '';
   }
 
-  const api = { keAngka, uraiStruk, tebakKategori, cariKembar, bacaGambar, siapkanPekerja };
+  /* Banyak aplikasi bank menulis sen dengan huruf kecil ("Rp 5.000,00" dengan ",00" mini). Pembaca teks
+     sering salah membacanya jadi ".000", sehingga Rp 5.000 terbaca Rp 5.000.000. Di sini digit di ujung
+     angka yang tingginya jauh lebih kecil dari digit lain dibuang, beserta pemisah di depannya. */
+  function buangSenKecil(word) {
+    const sym = word.symbols || [];
+    const isDigit = (t) => /^[0-9Oo]$/.test(t);
+    const tinggi = (x) => x.bbox.y1 - x.bbox.y0;
+    const digit = sym.filter((x) => isDigit(x.text));
+    if (digit.length < 3) return word.text;
+    const acuan = Math.max.apply(null, digit.map(tinggi));
+    const kecil = (x) => isDigit(x.text) && (tinggi(x) < acuan * 0.75 || x.is_superscript);
+    const potong = (n) => sym.slice(0, n).map((x) => x.text).join('').replace(/[.,]+$/, '');
+    const adaBesar = (n) => sym.slice(0, n).some((x) => isDigit(x.text) && !kecil(x));
+
+    // 1) Kelompok setelah pemisah terakhir berisi digit kecil -> seluruh kelompok itu sen
+    //    (pembaca kadang menyisipkan digit palsu berukuran normal di antaranya)
+    let sep = -1;
+    for (let i = sym.length - 1; i >= 0; i--) { if (/^[.,]$/.test(sym[i].text)) { sep = i; break; } }
+    if (sep > 0) {
+      const ekor = sym.slice(sep + 1).filter((x) => isDigit(x.text));
+      if (ekor.length >= 1 && ekor.length <= 3 && ekor.some(kecil) && adaBesar(sep)) return potong(sep);
+    }
+    // 2) Sen kecil menempel tanpa pemisah ("5.00000"): buang deretan digit kecil di ujung
+    let i = sym.length - 1, n = 0;
+    while (i >= 0 && kecil(sym[i])) { n++; i--; }
+    if (n >= 1 && n <= 3 && adaBesar(i + 1)) return potong(i + 1);
+    return word.text;
+  }
+  function teksTanpaSenKecil(data) {
+    if (!data || !data.blocks || !data.blocks.length) return '';
+    const baris = [];
+    data.blocks.forEach((bl) => (bl.paragraphs || []).forEach((pa) => (pa.lines || []).forEach((ln) => {
+      baris.push((ln.words || []).map((w) => (/\d/.test(w.text) && w.symbols ? buangSenKecil(w) : w.text)).join(' '));
+    })));
+    return baris.join('\n');
+  }
+
+  const VERSI = 3;
+  const api = { VERSI, keAngka, uraiStruk, tebakKategori, cariKembar, bacaGambar, siapkanPekerja };
   if (typeof module !== 'undefined') module.exports = api;
   root.Struk = api;
 })(typeof window !== 'undefined' ? window : globalThis);
