@@ -2,7 +2,7 @@
    1. Menyimpan tampilan aplikasi agar terbuka cepat dan tetap bisa dibuka saat offline.
    2. Menerima bukti transaksi yang dibagikan dari aplikasi bank (menu "Bagikan").
    Data transaksi TIDAK lewat sini; itu langsung ke Google Apps Script. */
-const VERSI = 'catat-uang-v2';
+const VERSI = 'catat-uang-v3';
 const KIRIMAN = 'catat-uang-kiriman';
 const INTI = ['./', './index.html', './app.js', './struk.js', './manifest.json', './icon-192.png', './icon-512.png'];
 

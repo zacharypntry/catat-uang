@@ -13,8 +13,10 @@
   /** "1.250.000,00" / "1,250,000.00" / "50.000" / "125000" -> angka rupiah bulat */
   function keAngka(s) {
     s = String(s).replace(/[Oo]/g, '0').replace(/[Il|]/g, '1').replace(/\s/g, '');
-    let m = s.match(/^(\d{1,3}(?:([.,])\d{3})+)(?:([.,])(\d{1,2}))?$/);
-    if (m && (!m[3] || m[3] !== m[2])) return Math.round(Number(m[1].replace(/[.,]/g, '') + (m[4] ? '.' + m[4] : '')));
+    // Ribuan selalu 3 digit, jadi 1–2 digit terakhir pasti desimal, apa pun pemisahnya.
+    // "36.000,00", "36.000.00" (sen kecil terbaca titik), "36.00000" (pemisah sen hilang)
+    let m = s.match(/^(\d{1,3}(?:([.,])\d{3})+)(?:(?:[.,])(\d{1,2})|(\d{2}))?$/);
+    if (m) return Math.round(Number(m[1].replace(/[.,]/g, '') + ((m[3] || m[4]) ? '.' + (m[3] || m[4]) : '')));
     m = s.match(/^(\d+)(?:[.,](\d{1,2}))?$/);
     if (m) return Math.round(Number(m[1] + (m[2] ? '.' + m[2] : '')));
     return 0;
@@ -105,6 +107,8 @@
   function bersihkanNama(s) {
     s = String(s || '')
       .replace(/\b\d[\d\s\-*xX]{3,}\b/g, ' ')        // nomor rekening / telepon
+      .replace(/\b(?=[A-Z0-9-]*\d)(?=[A-Z0-9-]*[A-Z])[A-Z0-9-]{8,}\b/g, ' ') // kode transaksi, mis. A-A3FBB2OGWXQRAV
+      .replace(/[*?#^~]+/g, ' ')
       .replace(/\b(?:bank|rek(?:ening)?|a\/n|an\.?)\b\s*$/i, '')
       .replace(/[|•·]+/g, ' ')
       .replace(/\s+-\s*$/, '')
@@ -129,6 +133,16 @@
       }
       if (nilai) return nilai;
     }
+    // Tanpa label (gaya blu, kartu debit): nama tepat di atas baris kartu/rekening. Ambil yang terakhir
+    // (yang pertama biasanya pemilik rekening sendiri).
+    const RE_KARTU = /\b(?:card|kartu|debit|kredit|credit|rekening|account)\b.*(?:[•·.*xX]{3,}|\d{4})|(?:[•·.*]{3,}\s*){2,}\d{3,4}/i;
+    let calon = '';
+    for (let i = 1; i < baris.length; i++) {
+      if (!RE_KARTU.test(baris[i]) || RE_LABEL_APAPUN.test(baris[i - 1]) || /Rp \d/.test(baris[i - 1])) continue;
+      const n = bersihkanNama(baris[i - 1].replace(/^[^A-Za-z0-9]*[A-Z]\s+(?=[A-Z][a-z])/, ''));
+      if (n) calon = n;
+    }
+    if (calon) return calon;
     const kalimat = baris.join(' ').match(masuk
       ? /\b(?:dari|from)\s+([A-Za-z][A-Za-z .'&]{2,40})/
       : /\b(?:ke|kepada|to)\s+([A-Z][A-Za-z .'&]{2,40})/);
