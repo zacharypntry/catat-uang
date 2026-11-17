@@ -188,9 +188,49 @@ if (typeof document !== 'undefined') (function () {
     editing: null, formJenis: 'pengeluaran',
     theme: store.get('cu_theme', 'sistem'),
     syncState: 'idle', charts: {},
+    kat: store.get('cu_kat', { pemasukan: [], pengeluaran: [] }),
+    katJenis: 'pengeluaran', formKat: '', formKatBaru: [], katSibuk: false,
   };
   const all = () => S.tx.concat(S.pending.map((p) => Object.assign({ pending: true }, p)));
-  const persist = () => { store.set('cu_tx', S.tx); store.set('cu_pending', S.pending); };
+  const persist = () => { store.set('cu_tx', S.tx); store.set('cu_pending', S.pending); store.set('cu_kat', S.kat); };
+
+  /* ---------- Kategori ---------- */
+  const samaKat = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+  const daftarKat = (jenis) => (S.kat && S.kat[jenis]) || [];
+  function jumlahPakai(jenis) {
+    const n = {};
+    all().forEach((x) => { if (x.jenis === jenis) { const k = x.kategori.toLowerCase(); n[k] = (n[k] || 0) + 1; } });
+    return n;
+  }
+  /* Untuk chip di form: paling sering dipakai di depan */
+  function urutKat(jenis) {
+    const n = jumlahPakai(jenis);
+    return daftarKat(jenis).map((k, i) => ({ k, i, n: n[k.toLowerCase()] || 0 }))
+      .sort((a, b) => b.n - a.n || a.i - b.i).map((o) => o.k);
+  }
+  /* Ejaan baku: pakai yang sudah ada di daftar / riwayat */
+  function bakuKat(jenis, nama) {
+    nama = String(nama).replace(/\s+/g, ' ').trim();
+    return daftarKat(jenis).find((k) => samaKat(k, nama)) || canonCat(all(), jenis, nama);
+  }
+  function tambahKatLokal(jenis, nama) {
+    if (!daftarKat(jenis).some((k) => samaKat(k, nama))) { S.kat[jenis] = daftarKat(jenis).concat([nama]); persist(); }
+  }
+  /* Server lama (Code.gs belum diperbarui) tidak punya daftar kategori: ambil dari riwayat */
+  function katDariRiwayat(tx) {
+    const out = { pemasukan: [], pengeluaran: [] };
+    tx.forEach((x) => { if (out[x.jenis] && !out[x.jenis].some((k) => samaKat(k, x.kategori))) out[x.jenis].push(x.kategori); });
+    return out;
+  }
+  async function muatSemua(cfg) {
+    try {
+      return await api('muat', null, cfg);
+    } catch (e) {
+      if (!e.versiLama) throw e;
+      const tx = await api('list', null, cfg);
+      return { transaksi: tx, kategori: katDariRiwayat(tx) };
+    }
+  }
 
   /* ---------- Ikon ---------- */
   const I = {
@@ -217,16 +257,25 @@ if (typeof document !== 'undefined') (function () {
     setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 220); }, ms || (kind === 'warn' ? 4200 : 2200));
   }
   let dialogDone = null;
-  function confirmBox(title, text, yes) {
+  /* opts.input: tampilkan kolom isian (hasil = teksnya, atau false). opts.danger: tombol merah (bawaan). */
+  function confirmBox(title, text, yes, opts) {
+    opts = opts || {};
+    const pakaiInput = typeof opts.input === 'string';
     $('dTitle').textContent = title; $('dText').textContent = text; $('dYes').textContent = yes || 'Hapus';
+    $('dYes').className = opts.danger === false ? 'btn' : 'btn red';
+    $('dInput').hidden = !pakaiInput; $('dYes').disabled = false;
     $('scrim2').classList.add('show'); $('dialog').classList.add('show');
-    $('dNo').focus();
+    if (pakaiInput) { $('dInput').value = opts.input; $('dInput').focus(); $('dInput').select(); }
+    else $('dNo').focus();
     return new Promise((res) => { dialogDone = res; });
   }
   function closeDialog(v) {
+    if (v && !$('dInput').hidden) { v = $('dInput').value.replace(/\s+/g, ' ').trim(); if (!v) return; }
     $('scrim2').classList.remove('show'); $('dialog').classList.remove('show');
     if (dialogDone) { dialogDone(v); dialogDone = null; }
   }
+  $('dInput').oninput = () => { $('dYes').disabled = !$('dInput').value.trim(); };
+  $('dInput').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); closeDialog(true); } };
   $('dNo').onclick = () => closeDialog(false);
   $('dYes').onclick = () => closeDialog(true);
   $('scrim2').onclick = () => closeDialog(false);
@@ -263,7 +312,11 @@ if (typeof document !== 'undefined') (function () {
     try { j = await res.json(); } catch (e) {
       throw new Error('URL tidak merespons dengan benar. Periksa URL dan pastikan aksesnya "Siapa saja".');
     }
-    if (!j.ok) { const err = new Error(j.pesan || 'Terjadi kesalahan.'); err.auth = j.kode === 'AUTH'; throw err; }
+    if (!j.ok) {
+      const lama = j.pesan === 'Aksi tidak dikenal.';
+      const err = new Error(lama ? 'Code.gs di Apps Script belum diperbarui ke versi terbaru (lihat panduan bagian 7).' : (j.pesan || 'Terjadi kesalahan.'));
+      err.auth = j.kode === 'AUTH'; err.versiLama = lama; throw err;
+    }
     return j.data;
   }
 
@@ -288,8 +341,8 @@ if (typeof document !== 'undefined') (function () {
     try {
       await flush();
       let data, seen;
-      do { seen = mut; data = await api('list'); } while (seen !== mut);
-      S.tx = data;
+      do { seen = mut; data = await muatSemua(); } while (seen !== mut);
+      S.tx = data.transaksi; S.kat = data.kategori;
       S.hasCache = true; S.lastSync = Date.now();
       persist(); store.set('cu_last', S.lastSync);
       setSync('ok');
@@ -327,11 +380,12 @@ if (typeof document !== 'undefined') (function () {
     const btn = $('gBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Menghubungkan';
     $('gErr').textContent = '';
     try {
-      const data = await api('list', null, { url: url, token: token });
+      const data = await muatSemua({ url: url, token: token });
       S.cfg = { url: url, token: token }; store.set('cu_cfg', S.cfg);
-      S.tx = data; S.hasCache = true; S.lastSync = Date.now(); persist(); store.set('cu_last', S.lastSync);
+      S.tx = data.transaksi; S.kat = data.kategori; S.hasCache = true; S.lastSync = Date.now(); persist(); store.set('cu_last', S.lastSync);
       $('gPass').value = '';
       showApp(); setSync('ok'); toast('Terhubung ke spreadsheet', 'ok');
+      if (antrianStruk) { const a = antrianStruk; antrianStruk = null; isiDariStruk(a.file, a.teks); }
       if (S.pending.length) sync(true);
     } catch (err) { $('gErr').textContent = err.message; }
     btn.disabled = false; btn.textContent = 'Hubungkan';
@@ -339,8 +393,8 @@ if (typeof document !== 'undefined') (function () {
   $('sLogout').onclick = async () => {
     const extra = S.pending.length ? ' Ada ' + S.pending.length + ' transaksi yang belum terkirim dan akan ikut terhapus dari HP ini.' : '';
     if (!(await confirmBox('Putuskan koneksi?', 'Kamu perlu memasukkan URL dan kata sandi lagi untuk memakai aplikasi.' + extra, 'Putuskan'))) return;
-    ['cu_cfg', 'cu_tx', 'cu_pending', 'cu_last'].forEach(store.del);
-    S.cfg = null; S.tx = []; S.pending = []; S.hasCache = false;
+    ['cu_cfg', 'cu_tx', 'cu_pending', 'cu_last', 'cu_kat'].forEach(store.del);
+    S.cfg = null; S.tx = []; S.pending = []; S.kat = { pemasukan: [], pengeluaran: [] }; S.hasCache = false;
     $('gUrl').value = ''; showGate('');
   };
 
@@ -428,7 +482,10 @@ if (typeof document !== 'undefined') (function () {
   /* ---------- Riwayat ---------- */
   function renderRiwayat() {
     const list = all(), f = S.hist;
-    const cats = catStats(list).map((c) => c.name).sort((a, b) => a.localeCompare(b, 'id'));
+    const cats = [];
+    catStats(list).map((c) => c.name).concat(daftarKat('pengeluaran'), daftarKat('pemasukan'))
+      .forEach((c) => { if (!cats.some((k) => samaKat(k, c))) cats.push(c); });
+    cats.sort((a, b) => a.localeCompare(b, 'id'));
     $('hKat').innerHTML = '<option value="">Semua kategori</option>' + cats.map((c) => '<option' + (c === f.kat ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
     $('hJenis').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === f.jenis)));
     $('hFrom').value = f.from; $('hTo').value = f.to;
@@ -562,7 +619,77 @@ if (typeof document !== 'undefined') (function () {
   $('aTrend').onclick = (e) => { const b = e.target.closest('button'); if (b) { S.trend = b.dataset.v; renderAnalisis(); } };
 
   /* ---------- Atur ---------- */
+  const IK = {
+    ubah: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    hapus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></svg>',
+  };
+  function renderKatAdmin() {
+    const jenis = S.katJenis, list = daftarKat(jenis), n = jumlahPakai(jenis);
+    $('kJenis').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === jenis)));
+    $('kList').innerHTML = list.length ? list.map((k, i) => {
+      const c = n[k.toLowerCase()] || 0;
+      return '<div class="krow"><button class="kname" data-k-ubah="' + i + '">' + esc(k) + '<small>' + (c ? c + ' transaksi' : 'Belum dipakai') + '</small></button>' +
+        '<button class="kbtn" data-k-ubah="' + i + '" aria-label="Ganti nama ' + esc(k) + '">' + IK.ubah + '</button>' +
+        '<button class="kbtn del" data-k-hapus="' + i + '" aria-label="Hapus ' + esc(k) + '">' + IK.hapus + '</button></div>';
+    }).join('') : '<div class="kempty">Belum ada kategori ' + jenis + '. Tambahkan di atas, atau langsung saat mencatat transaksi.</div>';
+  }
+  $('kJenis').onclick = (e) => { const b = e.target.closest('button'); if (b) { S.katJenis = b.dataset.v; $('kErr').textContent = ''; renderKatAdmin(); } };
+  $('kNama').oninput = () => { $('kErr').textContent = ''; };
+  $('kAdd').onsubmit = async (e) => {
+    e.preventDefault();
+    if (S.katSibuk) return;
+    const jenis = S.katJenis, nama = $('kNama').value.replace(/\s+/g, ' ').trim();
+    if (!nama) { $('kErr').textContent = 'Tulis nama kategorinya.'; $('kNama').focus(); return; }
+    const ada = daftarKat(jenis).find((k) => samaKat(k, nama));
+    if (ada) { $('kErr').textContent = 'Kategori "' + ada + '" sudah ada.'; return; }
+    S.katSibuk = true; const btn = $('kAddBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+    try {
+      S.kat = await api('tambahKategori', { jenis, nama }); mut++; persist();
+      $('kNama').value = ''; renderKatAdmin(); toast('Kategori "' + nama + '" ditambahkan', 'ok');
+    } catch (err) {
+      if (err.auth) { showGate(err.message); } else $('kErr').textContent = err.message;
+    }
+    S.katSibuk = false; btn.disabled = false; btn.textContent = 'Tambah';
+  };
+  $('kList').onclick = async (e) => {
+    const bU = e.target.closest('[data-k-ubah]'), bH = e.target.closest('[data-k-hapus]');
+    if ((!bU && !bH) || S.katSibuk) return;
+    const jenis = S.katJenis, nama = daftarKat(jenis)[Number((bU || bH).dataset[bU ? 'kUbah' : 'kHapus'])];
+    if (!nama) return;
+    const c = jumlahPakai(jenis)[nama.toLowerCase()] || 0;
+    if (bU) {
+      const baru = await confirmBox('Ganti nama kategori',
+        (c ? c + ' transaksi lama ikut diganti di spreadsheet. ' : '') + 'Jika nama baru sudah ada, keduanya digabung.', 'Simpan', { input: nama, danger: false });
+      if (!baru || baru === nama) return;
+      S.katSibuk = true;
+      try {
+        const r = await api('ubahKategori', { jenis, lama: nama, baru });
+        S.kat = r.kategori;
+        const final = daftarKat(jenis).find((k) => samaKat(k, baru)) || baru;
+        S.tx.concat(S.pending).forEach((x) => { if (x.jenis === jenis && samaKat(x.kategori, nama)) x.kategori = final; });
+        mut++; persist(); render();
+        toast('Kategori diganti' + (r.diubah ? ', ' + r.diubah + ' transaksi diperbarui' : ''), 'ok');
+      } catch (err) {
+        if (err.auth) showGate(err.message); else toast('Gagal mengganti. ' + err.message, 'warn');
+      }
+      S.katSibuk = false;
+    } else {
+      const ok = await confirmBox('Hapus kategori "' + nama + '"?',
+        'Kategori hilang dari pilihan.' + (c ? ' ' + c + ' transaksi lama tetap tercatat sebagai "' + nama + '".' : ''), 'Hapus');
+      if (!ok) return;
+      S.katSibuk = true;
+      try {
+        S.kat = await api('hapusKategori', { jenis, nama }); mut++; persist(); render();
+        toast('Kategori dihapus', 'ok');
+      } catch (err) {
+        if (err.auth) showGate(err.message); else toast('Gagal menghapus. ' + err.message, 'warn');
+      }
+      S.katSibuk = false;
+    }
+  };
+
   function renderAtur() {
+    renderKatAdmin();
     const when = S.lastSync ? new Date(S.lastSync).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'belum pernah';
     $('sInfo').textContent = S.tx.length + ' transaksi tersimpan di spreadsheet. Terakhir sinkron: ' + when + '.' +
       (S.pending.length ? ' ' + S.pending.length + ' transaksi menunggu dikirim.' : '');
@@ -579,17 +706,32 @@ if (typeof document !== 'undefined') (function () {
 
   /* ---------- Form tambah / ubah ---------- */
   function setJenis(j) {
+    if (S.formJenis !== j && S.formKat && !daftarKat(j).some((k) => samaKat(k, S.formKat)) &&
+      !S.formKatBaru.some((k) => samaKat(k, S.formKat))) S.formKat = '';
     S.formJenis = j;
     $('fJenis').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === j)));
     renderSug();
   }
   function renderSug() {
-    const typed = $('fKategori').value;
-    const list = suggest(all(), S.formJenis, typed, 8);
-    const exact = typed.trim().toLowerCase();
-    $('fSug').innerHTML = list.length
-      ? list.map((c) => '<button type="button" class="chip' + (c.toLowerCase() === exact ? ' on' : '') + '" data-cat="' + esc(c) + '">' + esc(c) + '</button>').join('')
-      : (typed.trim() ? '' : '<div class="hint">Kategori yang pernah kamu pakai akan muncul di sini.</div>');
+    const names = urutKat(S.formJenis);
+    [S.formKat].concat(S.formKatBaru).forEach((k) => { if (k && !names.some((n) => samaKat(n, k))) names.unshift(k); });
+    $('fSug').innerHTML = names.map((c) => '<button type="button" class="chip' + (S.formKat && samaKat(c, S.formKat) ? ' on' : '') +
+      '" data-cat="' + esc(c) + '" aria-pressed="' + !!(S.formKat && samaKat(c, S.formKat)) + '">' + esc(c) + '</button>').join('') +
+      '<button type="button" class="chip add" data-new="1">+ Kategori baru</button>' +
+      (names.length ? '' : '<div class="hint" style="width:100%">Belum ada kategori ' + S.formJenis + '. Buat yang pertama.</div>');
+  }
+  function pilihKat(nama) {
+    S.formKat = nama; $('fErrKategori').textContent = '';
+    $('fNewCat').hidden = true; $('fKategoriBaru').value = '';
+    renderSug();
+  }
+  function pakaiKatBaru() {
+    const v = $('fKategoriBaru').value.replace(/\s+/g, ' ').trim();
+    if (!v) { $('fErrKategori').textContent = 'Tulis nama kategorinya.'; $('fKategoriBaru').focus(); return; }
+    const nama = bakuKat(S.formJenis, v);
+    if (!daftarKat(S.formJenis).some((k) => samaKat(k, nama)) && !S.formKatBaru.some((k) => samaKat(k, nama))) S.formKatBaru.push(nama);
+    disentuh.add('kategori'); pilihKat(nama);
+    $('fKategoriBaru').blur();
   }
   function setDate(d) {
     $('fTanggal').value = d;
@@ -599,20 +741,42 @@ if (typeof document !== 'undefined') (function () {
   function clearErrors() {
     $('fErrNominal').textContent = ''; $('fErrKategori').textContent = ''; $('fAmtBox').classList.remove('bad');
   }
-  function openForm(x) {
+  /* Kolom yang sudah disentuh pengguna tidak ditimpa hasil baca struk */
+  const disentuh = new Set();
+  let strukUrl = '', strukToken = 0;
+  function resetStruk() {
+    strukToken++;
+    if (strukUrl) { URL.revokeObjectURL(strukUrl); strukUrl = ''; }
+    $('fStrukInfo').hidden = true; $('fStrukInfo').classList.remove('warn');
+    $('viewer').hidden = true;
+  }
+  function statusStruk(judul, teks, progres, warn) {
+    $('fStrukInfo').hidden = false;
+    $('fStrukInfo').classList.toggle('warn', !!warn);
+    $('fStrukTitle').textContent = judul; $('fStrukText').textContent = teks;
+    $('fStrukBarBox').hidden = progres == null;
+    if (progres != null) $('fStrukBar').style.width = Math.max(4, Math.round(progres * 100)) + '%';
+  }
+  function kilau(id) { const el = $(id); el.classList.remove('filled'); void el.offsetWidth; el.classList.add('filled'); }
+
+  function openForm(x, tanpaFokus) {
     S.editing = x;
+    disentuh.clear(); resetStruk();
+    $('fStrukBtn').hidden = !!x;
     $('fTitle').textContent = x ? 'Ubah transaksi' : 'Tambah transaksi';
     $('fNominal').value = x ? Number(x.nominal).toLocaleString('id-ID') : '';
-    $('fKategori').value = x ? x.kategori : '';
+    S.formKat = x ? x.kategori : ''; S.formKatBaru = [];
+    $('fNewCat').hidden = true; $('fKategoriBaru').value = '';
     $('fCatatan').value = x ? (x.catatan || '') : '';
     $('fDelete').hidden = !x;
     $('fSave').disabled = false; $('fSave').textContent = x ? 'Simpan perubahan' : 'Simpan';
     clearErrors(); setDate(x ? x.tanggal : today()); setJenis(x ? x.jenis : 'pengeluaran');
     $('scrim').classList.add('show'); $('sheet').classList.add('show');
     $('sheet').scrollTop = 0;
-    if (!x) { void $('sheet').offsetHeight; $('fNominal').focus(); }
+    if (!x && !tanpaFokus) { void $('sheet').offsetHeight; $('fNominal').focus(); }
   }
   function closeForm() {
+    resetStruk();
     $('scrim').classList.remove('show'); $('sheet').classList.remove('show');
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     S.editing = null;
@@ -624,34 +788,120 @@ if (typeof document !== 'undefined') (function () {
   }
   $('fClose').onclick = closeForm; $('scrim').onclick = closeForm;
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (dialogDone) closeDialog(false); else closeForm(); } });
-  $('fJenis').onclick = (e) => { const b = e.target.closest('button'); if (b) setJenis(b.dataset.v); };
+  $('fJenis').onclick = (e) => { const b = e.target.closest('button'); if (b) { disentuh.add('jenis'); setJenis(b.dataset.v); } };
   $('fNominal').oninput = (e) => {
+    disentuh.add('nominal');
     const d = digits(e.target.value);
     e.target.value = d ? Number(d).toLocaleString('id-ID') : '';
     clearErrors();
   };
-  $('fNominal').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('fKategori').focus(); } };
-  $('fKategori').oninput = () => { $('fErrKategori').textContent = ''; renderSug(); };
+  $('fNominal').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('fNominal').blur(); } };
+  $('fKategoriBaru').oninput = () => { $('fErrKategori').textContent = ''; };
+  $('fKategoriBaru').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); pakaiKatBaru(); } };
+  $('fNewCatAdd').onclick = pakaiKatBaru;
+  $('fKelola').onclick = () => { S.katJenis = S.formJenis; closeForm(); go('atur'); };
+  $('fCatatan').oninput = () => disentuh.add('catatan');
   $('fSug').onclick = (e) => {
+    if (e.target.closest('[data-new]')) {
+      $('fNewCat').hidden = false; $('fErrKategori').textContent = ''; $('fKategoriBaru').focus();
+      return;
+    }
     const b = e.target.closest('[data-cat]'); if (!b) return;
-    $('fKategori').value = b.dataset.cat; $('fErrKategori').textContent = ''; renderSug();
-    if (document.activeElement === $('fKategori')) $('fKategori').blur();
+    disentuh.add('kategori'); pilihKat(b.dataset.cat);
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   };
-  $('fToday').onclick = () => setDate(today());
-  $('fYest').onclick = () => setDate(addDays(today(), -1));
-  $('fTanggal').onchange = (e) => setDate(e.target.value || today());
+  $('fToday').onclick = () => { disentuh.add('tanggal'); setDate(today()); };
+  $('fYest').onclick = () => { disentuh.add('tanggal'); setDate(addDays(today(), -1)); };
+  $('fTanggal').onchange = (e) => { disentuh.add('tanggal'); setDate(e.target.value || today()); };
+
+  /* ---------- Isi otomatis dari bukti transaksi ---------- */
+  let antrianStruk = null;
+  async function isiDariStruk(file, teksKiriman) {
+    if (!S.cfg || $('app').hidden) { antrianStruk = { file: file, teks: teksKiriman }; return; }
+    if (!$('sheet').classList.contains('show') || S.editing) openForm(null, true);
+    else if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    resetStruk();
+    const token = strukToken;
+    $('fStrukBtn').hidden = true;
+    $('fThumb').hidden = !file;
+    if (file) { strukUrl = URL.createObjectURL(file); $('fThumbImg').src = strukUrl; }
+    statusStruk('Membaca bukti transaksi', 'Biasanya beberapa detik. Pertama kali sedikit lebih lama.', file ? 0 : null);
+
+    let teks = teksKiriman || '';
+    if (file) {
+      try {
+        teks = (await window.Struk.bacaGambar(file, (p) => { if (token === strukToken) $('fStrukBar').style.width = Math.max(4, Math.round(p * 100)) + '%'; })) + '\n' + teks;
+      } catch (err) {
+        if (token !== strukToken) return;
+        statusStruk('Bukti transaksi belum terbaca', (err.message || 'Terjadi kesalahan.') + ' Isi manual sambil melihat gambarnya.', null, true);
+        return;
+      }
+    }
+    if (token !== strukToken) return; // form sudah ditutup / struk lain dibuka
+
+    const d = window.Struk.uraiStruk(teks, today());
+    if (!disentuh.has('jenis')) setJenis(d.jenis);
+    if (d.nominal && !disentuh.has('nominal')) { $('fNominal').value = d.nominal.toLocaleString('id-ID'); clearErrors(); kilau('fAmtBox'); }
+    if (d.tanggal && !disentuh.has('tanggal')) { setDate(d.tanggal); kilau('fTanggal'); }
+    if (d.catatan && !disentuh.has('catatan')) { $('fCatatan').value = d.catatan; kilau('fCatatan'); }
+    const tebak = window.Struk.tebakKategori(S.tx, S.formJenis, d.pihak);
+    const kat = tebak ? daftarKat(S.formJenis).find((k) => samaKat(k, tebak)) || '' : '';
+    if (kat && !disentuh.has('kategori') && !S.formKat) { pilihKat(kat); kilau('fSug'); }
+    renderSug();
+
+    const kembar = d.nominal ? window.Struk.cariKembar(all(), { jenis: S.formJenis, tanggal: $('fTanggal').value, nominal: d.nominal, pihak: d.pihak }) : null;
+    const kurang = [];
+    if (!d.nominal) kurang.push('Nominal');
+    if (!d.tanggal) kurang.push('tanggal');
+    if (kembar) {
+      statusStruk('Mungkin sudah tercatat', kembar.kategori + ' ' + rp(kembar.nominal) + ' pada ' + tglPendek(kembar.tanggal) + ' sudah ada. Simpan hanya jika ini transaksi lain.', null, true);
+    } else if (kurang.length) {
+      statusStruk(kurang.join(' dan ') + ' belum terbaca', (d.tanggal ? '' : 'Tanggal diisi hari ini. ') + 'Ketuk gambar untuk melihat buktinya.', null, true);
+    } else {
+      statusStruk('Terisi dari bukti transaksi', kat ? 'Kategori "' + kat + '" seperti transaksi sebelumnya. Periksa lalu simpan.' : 'Tinggal pilih kategori, lalu simpan.', null, false);
+    }
+    if (!d.nominal) $('fNominal').focus();
+  }
+  $('fStrukBtn').onclick = () => {
+    if (window.Struk) window.Struk.siapkanPekerja().catch(() => {}); // panaskan pembaca selagi memilih gambar
+    $('fStrukFile').click();
+  };
+  $('fStrukFile').onchange = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (f) isiDariStruk(f, '');
+  };
+  $('fThumb').onclick = () => { if (strukUrl) { $('viewerImg').src = strukUrl; $('viewer').hidden = false; } };
+  $('viewer').onclick = () => { $('viewer').hidden = true; };
+
+  /* Kiriman dari menu "Bagikan" di aplikasi bank (lewat sw.js) */
+  async function ambilKiriman() {
+    const q = location.search;
+    if (!/[?&]share=/.test(q)) return null;
+    history.replaceState(null, '', location.pathname);
+    if (/share=gagal/.test(q)) { toast('Bukti transaksi tidak bisa diterima. Coba bagikan sekali lagi.', 'warn'); return null; }
+    try {
+      const c = await caches.open('catat-uang-kiriman');
+      const rf = await c.match('kiriman-file'), rt = await c.match('kiriman-teks');
+      const out = { file: rf ? await rf.blob() : null, teks: rt ? await rt.text() : '' };
+      await c.delete('kiriman-file'); await c.delete('kiriman-teks');
+      return out.file || out.teks.trim() ? out : null;
+    } catch (e) { return null; }
+  }
 
   $('form').onsubmit = async (e) => {
     e.preventDefault(); clearErrors();
     const nominal = Number(digits($('fNominal').value) || 0);
-    const kategoriRaw = $('fKategori').value.trim();
+    const ketik = $('fNewCat').hidden ? '' : $('fKategoriBaru').value.replace(/\s+/g, ' ').trim();
+    const kategoriRaw = ketik || S.formKat;
     const tanggal = $('fTanggal').value || today();
     let bad = false;
     if (!(nominal > 0)) { $('fErrNominal').textContent = 'Isi nominal lebih dari 0.'; $('fAmtBox').classList.add('bad'); $('fNominal').focus(); bad = true; }
-    if (!kategoriRaw) { $('fErrKategori').textContent = 'Isi atau pilih kategori.'; if (!bad) $('fKategori').focus(); bad = true; }
+    if (!kategoriRaw) { $('fErrKategori').textContent = 'Pilih kategori, atau buat yang baru.'; bad = true; }
     if (bad) return;
     const item = { jenis: S.formJenis, tanggal: tanggal, nominal: nominal,
-      kategori: canonCat(all(), S.formJenis, kategoriRaw), catatan: $('fCatatan').value.trim() };
+      kategori: bakuKat(S.formJenis, kategoriRaw), catatan: $('fCatatan').value.trim() };
+    tambahKatLokal(item.jenis, item.kategori);
 
     if (S.editing) {
       const old = S.editing, btn = $('fSave');
@@ -701,6 +951,11 @@ if (typeof document !== 'undefined') (function () {
   /* ---------- Mulai ---------- */
   applyTheme();
   if (S.cfg) { showApp(); go('beranda'); sync(true); } else showGate('');
+  ambilKiriman().then((k) => {
+    if (!k) return;
+    if (!S.cfg) $('gErr').textContent = 'Hubungkan dulu, lalu bukti transaksi yang kamu bagikan akan langsung dibaca.';
+    isiDariStruk(k.file, k.teks);
+  });
   window.addEventListener('online', () => sync(true));
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && S.cfg && Date.now() - S.lastSync > 60000) sync(true);
