@@ -27,7 +27,7 @@
     return String(teks || '')
       .replace(/\r/g, '')
       .replace(/(\d)\s*([.,])\s*(?=\d{3}\b)/g, '$1$2')
-      .replace(/\b(rp|idr)\s*[.:]?\s*(?=[\dOo])/gi, 'Rp ')
+      .replace(/\b(r ?p|bp|idr)\s*[.:]?\s*(?=[\dOo])/gi, 'Rp ')
       .split('\n').map((l) => l.replace(/[ \t]+/g, ' ').trim()).filter(Boolean);
   }
 
@@ -43,7 +43,9 @@
       RE_UANG.lastIndex = 0;
       while ((m = RE_UANG.exec(l))) temuan.push(m[1]);
       // Angka tanpa "Rp" hanya dihitung bila barisnya berlabel jumlah/total
-      if (!temuan.length && /total|jumlah|nominal|amount|nilai|bayar/i.test(l)) {
+      const RE_LBL = /total|jumlah|nominal|amount|nilai|bayar/i;
+      // ... atau angkanya sendirian di bawah baris label ("Total Transaksi" / "50.000")
+      if (!temuan.length && (RE_LBL.test(l) || (huruf(l) < 3 && i > 0 && RE_LBL.test(baris[i - 1])))) {
         RE_ANGKA_LABEL.lastIndex = 0;
         while ((m = RE_ANGKA_LABEL.exec(l))) temuan.push(m[1]);
       }
@@ -89,6 +91,13 @@
     while ((m = reD.exec(t))) tambah(m[1], m[2], m[3], m.index);
     const reE = /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/g;
     while ((m = reE.exec(t))) tambah(m[1], m[2], m[3], m.index);
+    // "18/11 15:30:22" tanpa tahun (mis. m-BCA): tahun ini, atau tahun lalu bila jadinya di masa depan
+    const reF = /\b(\d{1,2})\/(\d{1,2})(?![\/\-]?\d)\s+\d{1,2}[:.]\d{2}/g;
+    const thIni = +hariIni.slice(0, 4);
+    while ((m = reF.exec(t))) {
+      const th = (pad(m[2]) + pad(m[1]) > hariIni.slice(5, 7) + hariIni.slice(8, 10)) ? thIni - 1 : thIni;
+      tambah(m[1], m[2], th, m.index);
+    }
 
     // Wajar: paling lama setahun lalu, paling jauh besok
     const now = new Date(hariIni + 'T00:00:00');

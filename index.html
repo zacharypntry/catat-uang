@@ -265,6 +265,12 @@ th{font-weight:600;color:var(--muted);border-top:0}
 .chip.add{border-style:dashed;color:var(--a1);border-color:color-mix(in srgb,var(--a1) 50%,var(--line));background:none}
 .newcat{display:flex;gap:8px;margin-top:10px}
 .newcat .input{flex:1;min-width:0}
+.tog{display:flex;align-items:center;gap:12px;margin-top:14px;font-size:15px;font-weight:500;cursor:pointer}
+.tog input{width:22px;height:22px;margin:0;flex:none;accent-color:var(--a1)}
+.jamrow{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:15px;font-weight:500}
+.jamrow .input{width:auto;min-width:84px;flex:none}
+.jamrow[aria-disabled="true"]{opacity:.45}
+.btnrow{display:flex;gap:10px;flex-wrap:wrap}
 .btn.small{width:auto;min-height:50px;padding:0 18px;font-size:14.5px;border-radius:14px;flex:none}
 .krow{display:flex;align-items:center;gap:4px;border-top:1px solid var(--line);min-height:58px}
 .krow:first-child{border-top:0}
@@ -294,6 +300,7 @@ th{font-weight:600;color:var(--muted);border-top:0}
 @keyframes filled{0%{box-shadow:0 0 0 4px color-mix(in srgb,var(--a3) 45%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
 .viewer{position:fixed;inset:0;z-index:70;background:rgba(5,6,12,.92);display:grid;place-items:center;padding:calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px)}
 .viewer img{max-width:100%;max-height:100%;border-radius:12px;object-fit:contain}
+.viewer pre{margin:0;max-width:100%;max-height:100%;overflow:auto;white-space:pre-wrap;word-break:break-word;background:var(--solid);color:var(--text);border-radius:12px;padding:16px;font-size:13px;line-height:1.5}
 
 .view{animation:fade .22s ease}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}}
@@ -416,6 +423,24 @@ th{font-weight:600;color:var(--muted);border-top:0}
       <div class="err-text" id="kErr" role="alert"></div>
       <div id="kList" style="margin-top:4px"></div>
     </div>
+    <div class="card block" id="pCard">
+      <h2 class="title">Pengingat mencatat</h2>
+      <p class="sub">Notifikasi dari Google Calendar di HP-mu pada jam pilihanmu.</p>
+      <label class="tog"><input type="checkbox" id="pAktif"><span>Ingatkan setiap hari</span></label>
+      <div class="jamrow" id="pJamRow">
+        <span>Pukul</span>
+        <select class="input" id="pJam" aria-label="Jam"></select>
+        <span>:</span>
+        <select class="input" id="pMenit" aria-label="Menit"></select>
+      </div>
+      <label class="tog"><input type="checkbox" id="pKosong" checked><span>Hanya jika hari itu belum ada catatan</span></label>
+      <p class="sub" id="pInfo" style="margin-top:12px"></p>
+      <div class="err-text" id="pErr" role="alert"></div>
+      <div class="btnrow" style="margin-top:14px">
+        <button class="btn small" id="pSimpan" type="button">Simpan pengingat</button>
+        <button class="btn ghost small" id="pUji" type="button">Coba notifikasi</button>
+      </div>
+    </div>
     <div class="card block">
       <h2 class="title">Tampilan</h2>
       <div class="seg" id="sTheme" style="margin-top:12px">
@@ -425,6 +450,7 @@ th{font-weight:600;color:var(--muted);border-top:0}
     <div class="card block">
       <h2 class="title">Data</h2>
       <p class="sub" id="sInfo" style="margin:4px 0 14px"></p>
+      <p class="sub" id="sVersi" style="margin:-6px 0 14px"></p>
       <button class="btn ghost" id="sSync">Sinkronkan sekarang</button>
     </div>
     <div class="card block">
@@ -458,7 +484,7 @@ th{font-weight:600;color:var(--muted);border-top:0}
     <input type="file" id="fStrukFile" accept="image/*" hidden>
     <div class="strukinfo" id="fStrukInfo" hidden aria-live="polite">
       <button type="button" class="thumb" id="fThumb" aria-label="Lihat bukti transaksi"><img id="fThumbImg" alt=""></button>
-      <div class="si"><b id="fStrukTitle"></b><span id="fStrukText"></span><div class="bar" id="fStrukBarBox"><i id="fStrukBar"></i></div></div>
+      <div class="si"><b id="fStrukTitle"></b><span id="fStrukText"></span><button type="button" class="link small" id="fStrukTeksBtn" hidden style="padding:0">Lihat teks yang terbaca</button><div class="bar" id="fStrukBarBox"><i id="fStrukBar"></i></div></div>
     </div>
     <div class="seg jenis" id="fJenis" style="margin-top:14px">
       <button type="button" data-v="pengeluaran" aria-pressed="true">Pengeluaran</button><button type="button" data-v="pemasukan" aria-pressed="false">Pemasukan</button>
@@ -493,7 +519,7 @@ th{font-weight:600;color:var(--muted);border-top:0}
   <div class="acts"><button class="btn ghost" id="dNo">Batal</button><button class="btn red" id="dYes">Hapus</button></div>
 </div>
 
-<div class="viewer" id="viewer" hidden role="dialog" aria-label="Bukti transaksi"><img id="viewerImg" alt="Bukti transaksi"></div>
+<div class="viewer" id="viewer" hidden role="dialog" aria-label="Bukti transaksi"><img id="viewerImg" alt="Bukti transaksi"><pre id="viewerTeks" hidden></pre></div>
 
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 

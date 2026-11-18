@@ -123,7 +123,11 @@ function filterTx(list, f) {
     if (f.kat && x.kategori !== f.kat) return false;
     if (f.from && x.tanggal < f.from) return false;
     if (f.to && x.tanggal > f.to) return false;
-    if (q && (x.kategori + ' ' + (x.catatan || '')).toLowerCase().indexOf(q) === -1) return false;
+    if (q) {
+      // Setiap kata harus ada, mis. "pemasukan gaji" atau "grab maret"
+      const isi = (x.kategori + ' ' + (x.catatan || '') + ' ' + x.jenis).toLowerCase();
+      if (!q.split(/\s+/).every((w) => isi.indexOf(w) !== -1)) return false;
+    }
     return true;
   });
 }
@@ -171,7 +175,7 @@ if (typeof document !== 'undefined') (function () {
   const $ = (id) => document.getElementById(id);
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
-    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* penyimpanan penuh / diblokir */ } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
     del(k) { try { localStorage.removeItem(k); } catch (e) { /* abaikan */ } },
   };
 
@@ -192,7 +196,15 @@ if (typeof document !== 'undefined') (function () {
     katJenis: 'pengeluaran', formKat: '', formKatBaru: [], katSibuk: false,
   };
   const all = () => S.tx.concat(S.pending.map((p) => Object.assign({ pending: true }, p)));
-  const persist = () => { store.set('cu_tx', S.tx); store.set('cu_pending', S.pending); store.set('cu_kat', S.kat); };
+  let peringatanSimpan = false;
+  const persist = () => {
+    const ok = store.set('cu_pending', S.pending);
+    store.set('cu_tx', S.tx); store.set('cu_kat', S.kat);
+    if (!ok && S.pending.length && !peringatanSimpan) {
+      peringatanSimpan = true;
+      toast('Penyimpanan HP penuh atau diblokir. Transaksi yang belum terkirim bisa hilang bila aplikasi ditutup.', 'warn');
+    }
+  };
 
   /* ---------- Kategori ---------- */
   const samaKat = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
@@ -328,7 +340,7 @@ if (typeof document !== 'undefined') (function () {
       while (S.pending.length) {
         const p = S.pending[0];
         const saved = await api('add', p);
-        S.pending.shift(); S.tx.push(saved); mut++; persist();
+        S.pending = S.pending.filter((q) => q.id !== p.id); S.tx.push(saved); mut++; persist();
       }
     })().finally(() => { flushing = null; });
     return flushing;
@@ -341,7 +353,8 @@ if (typeof document !== 'undefined') (function () {
     try {
       await flush();
       let data, seen;
-      do { seen = mut; data = await muatSemua(); } while (seen !== mut);
+      let putaran = 0;
+      do { seen = mut; data = await muatSemua(); } while (seen !== mut && ++putaran < 3);
       S.tx = data.transaksi; S.kat = data.kategori;
       S.hasCache = true; S.lastSync = Date.now();
       persist(); store.set('cu_last', S.lastSync);
@@ -394,6 +407,7 @@ if (typeof document !== 'undefined') (function () {
     const extra = S.pending.length ? ' Ada ' + S.pending.length + ' transaksi yang belum terkirim dan akan ikut terhapus dari HP ini.' : '';
     if (!(await confirmBox('Putuskan koneksi?', 'Kamu perlu memasukkan URL dan kata sandi lagi untuk memakai aplikasi.' + extra, 'Putuskan'))) return;
     ['cu_cfg', 'cu_tx', 'cu_pending', 'cu_last', 'cu_kat'].forEach(store.del);
+    pengingatDimuat = false;
     S.cfg = null; S.tx = []; S.pending = []; S.kat = { pemasukan: [], pengeluaran: [] }; S.hasCache = false;
     $('gUrl').value = ''; showGate('');
   };
@@ -534,8 +548,14 @@ if (typeof document !== 'undefined') (function () {
     return map;
   }
   function chart(key, canvasId, cfg) {
-    if (S.charts[key]) S.charts[key].destroy();
-    S.charts[key] = new window.Chart($(canvasId), cfg);
+    const lama = S.charts[key], kanvas = $(canvasId);
+    /* Grafik yang sudah ada diperbarui di tempat, supaya tidak berkedip saat sinkron selesai */
+    if (lama && lama.canvas === kanvas && lama.config.type === cfg.type) {
+      lama.data = cfg.data; lama.options = cfg.options; lama.update();
+      return;
+    }
+    if (lama) lama.destroy();
+    S.charts[key] = new window.Chart(kanvas, cfg);
   }
   function barOptions(tipTitle) {
     const grid = cssVar('--grid'), text2 = cssVar('--text2');
@@ -688,12 +708,68 @@ if (typeof document !== 'undefined') (function () {
     }
   };
 
+  const VERSI_APP = '1.4';
   function renderAtur() {
+    $('sVersi').textContent = 'Versi aplikasi ' + VERSI_APP + ', pembaca struk ' + (window.Struk ? window.Struk.VERSI || 1 : '-') + '.';
     renderKatAdmin();
+    muatPengingat();
     const when = S.lastSync ? new Date(S.lastSync).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'belum pernah';
     $('sInfo').textContent = S.tx.length + ' transaksi tersimpan di spreadsheet. Terakhir sinkron: ' + when + '.' +
       (S.pending.length ? ' ' + S.pending.length + ' transaksi menunggu dikirim.' : '');
   }
+
+  /* ---------- Pengingat mencatat (disimpan di Apps Script, notifikasi lewat Google Calendar) ---------- */
+  const pad2 = (n) => String(n).padStart(2, '0');
+  $('pJam').innerHTML = Array.from({ length: 23 }, (_, i) => '<option value="' + (i + 1) + '">' + pad2(i + 1) + '</option>').join('');
+  $('pMenit').innerHTML = [0, 15, 30, 45].map((m) => '<option value="' + m + '">' + pad2(m) + '</option>').join('');
+  let pengingatDimuat = false;
+  function isiPengingat(p) {
+    $('pAktif').checked = !!p.aktif; $('pJam').value = String(p.jam); $('pMenit').value = String(p.menit);
+    $('pKosong').checked = p.hanyaJikaKosong !== false;
+    infoPengingat(p);
+  }
+  function infoPengingat(p) {
+    $('pInfo').textContent = !p ? '' : p.aktif
+      ? 'Aktif: setiap hari pukul ' + pad2(p.jam) + '.' + pad2(p.menit) + (p.hanyaJikaKosong !== false ? ', kecuali hari itu sudah ada catatan.' : '.')
+      : 'Pengingat mati.';
+  }
+  function kunciPengingat(sibuk) {
+    ['pAktif', 'pJam', 'pMenit', 'pKosong', 'pSimpan', 'pUji'].forEach((id) => { $(id).disabled = sibuk; });
+    $('pJamRow').setAttribute('aria-disabled', String(sibuk || !$('pAktif').checked));
+  }
+  function galatPengingat(err) {
+    if (err.auth) { showGate(err.message); return; }
+    $('pErr').textContent = err.offline ? 'Butuh internet untuk mengatur pengingat.' : err.message;
+  }
+  async function muatPengingat() {
+    if (pengingatDimuat || !S.cfg) return;
+    $('pErr').textContent = ''; $('pInfo').textContent = 'Memuat pengaturan…'; kunciPengingat(true);
+    try { isiPengingat(await api('pengingat')); pengingatDimuat = true; }
+    catch (err) { $('pInfo').textContent = ''; galatPengingat(err); }
+    kunciPengingat(false);
+  }
+  const urlAplikasi = () => location.origin + location.pathname.replace(/index\.html$/, '');
+  $('pAktif').onchange = () => kunciPengingat(false);
+  $('pSimpan').onclick = async () => {
+    $('pErr').textContent = ''; kunciPengingat(true);
+    const btn = $('pSimpan'); btn.innerHTML = '<span class="spin"></span>Menyimpan';
+    try {
+      const p = await api('aturPengingat', { aktif: $('pAktif').checked, jam: Number($('pJam').value),
+        menit: Number($('pMenit').value), hanyaJikaKosong: $('pKosong').checked, url: urlAplikasi() });
+      isiPengingat(p); pengingatDimuat = true;
+      toast(p.aktif ? 'Pengingat disimpan' : 'Pengingat dimatikan', 'ok');
+    } catch (err) { galatPengingat(err); }
+    btn.textContent = 'Simpan pengingat'; kunciPengingat(false);
+  };
+  $('pUji').onclick = async () => {
+    $('pErr').textContent = ''; kunciPengingat(true);
+    const btn = $('pUji'); btn.innerHTML = '<span class="spin"></span>Membuat';
+    try {
+      const r = await api('ujiPengingat', { url: urlAplikasi() });
+      toast('Acara uji dibuat untuk pukul ' + r.pukul + '. Notifikasi Kalender seharusnya muncul di HP saat itu.', 'ok');
+    } catch (err) { galatPengingat(err); }
+    btn.textContent = 'Coba notifikasi'; kunciPengingat(false);
+  };
 
   function render() {
     if ($('app').hidden) return;
@@ -744,7 +820,9 @@ if (typeof document !== 'undefined') (function () {
   /* Kolom yang sudah disentuh pengguna tidak ditimpa hasil baca struk */
   const disentuh = new Set();
   let strukUrl = '', strukToken = 0;
+  let teksTerbaca = '';
   function resetStruk() {
+    teksTerbaca = ''; $('fStrukTeksBtn').hidden = true;
     strukToken++;
     if (strukUrl) { URL.revokeObjectURL(strukUrl); strukUrl = ''; }
     $('fStrukInfo').hidden = true; $('fStrukInfo').classList.remove('warn');
@@ -759,8 +837,9 @@ if (typeof document !== 'undefined') (function () {
   }
   function kilau(id) { const el = $(id); el.classList.remove('filled'); void el.offsetWidth; el.classList.add('filled'); }
 
+  let formTerbuka = false; /* cegah ketuk ganda pada Simpan membuat dua transaksi */
   function openForm(x, tanpaFokus) {
-    S.editing = x;
+    S.editing = x; formTerbuka = true;
     disentuh.clear(); resetStruk();
     $('fStrukBtn').hidden = !!x;
     $('fTitle').textContent = x ? 'Ubah transaksi' : 'Tambah transaksi';
@@ -776,6 +855,7 @@ if (typeof document !== 'undefined') (function () {
     if (!x && !tanpaFokus) { void $('sheet').offsetHeight; $('fNominal').focus(); }
   }
   function closeForm() {
+    formTerbuka = false;
     resetStruk();
     $('scrim').classList.remove('show'); $('sheet').classList.remove('show');
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -783,7 +863,6 @@ if (typeof document !== 'undefined') (function () {
   }
   function openTx(id) {
     const x = all().find((t) => t.id === id); if (!x) return;
-    if (x.pending) { toast('Transaksi ini belum terkirim. Tunggu sinkron selesai.', 'warn'); return; }
     openForm(x);
   }
   $('fClose').onclick = closeForm; $('scrim').onclick = closeForm;
@@ -838,6 +917,7 @@ if (typeof document !== 'undefined') (function () {
       }
     }
     if (token !== strukToken) return; // form sudah ditutup / struk lain dibuka
+    teksTerbaca = teks.trim();
 
     const d = window.Struk.uraiStruk(teks, today());
     if (!disentuh.has('jenis')) setJenis(d.jenis);
@@ -856,6 +936,7 @@ if (typeof document !== 'undefined') (function () {
     if (kembar) {
       statusStruk('Mungkin sudah tercatat', kembar.kategori + ' ' + rp(kembar.nominal) + ' pada ' + tglPendek(kembar.tanggal) + ' sudah ada. Simpan hanya jika ini transaksi lain.', null, true);
     } else if (kurang.length) {
+      $('fStrukTeksBtn').hidden = !teksTerbaca;
       statusStruk(kurang.join(' dan ') + ' belum terbaca', (d.tanggal ? '' : 'Tanggal diisi hari ini. ') + 'Ketuk gambar untuk melihat buktinya.', null, true);
     } else {
       statusStruk('Terisi dari bukti transaksi', kat ? 'Kategori "' + kat + '" seperti transaksi sebelumnya. Periksa lalu simpan.' : 'Tinggal pilih kategori, lalu simpan.', null, false);
@@ -871,7 +952,8 @@ if (typeof document !== 'undefined') (function () {
     e.target.value = '';
     if (f) isiDariStruk(f, '');
   };
-  $('fThumb').onclick = () => { if (strukUrl) { $('viewerImg').src = strukUrl; $('viewer').hidden = false; } };
+  $('fThumb').onclick = () => { if (strukUrl) { $('viewerTeks').hidden = true; $('viewerImg').hidden = false; $('viewerImg').src = strukUrl; $('viewer').hidden = false; } };
+  $('fStrukTeksBtn').onclick = () => { $('viewerImg').hidden = true; $('viewerTeks').hidden = false; $('viewerTeks').textContent = teksTerbaca || '(tidak ada teks)'; $('viewer').hidden = false; };
   $('viewer').onclick = () => { $('viewer').hidden = true; };
 
   /* Kiriman dari menu "Bagikan" di aplikasi bank (lewat sw.js) */
@@ -890,7 +972,9 @@ if (typeof document !== 'undefined') (function () {
   }
 
   $('form').onsubmit = async (e) => {
-    e.preventDefault(); clearErrors();
+    e.preventDefault();
+    if (!formTerbuka) return;
+    clearErrors();
     const nominal = Number(digits($('fNominal').value) || 0);
     const ketik = $('fNewCat').hidden ? '' : $('fKategoriBaru').value.replace(/\s+/g, ' ').trim();
     const kategoriRaw = ketik || S.formKat;
@@ -903,6 +987,18 @@ if (typeof document !== 'undefined') (function () {
       kategori: bakuKat(S.formJenis, kategoriRaw), catatan: $('fCatatan').value.trim() };
     tambahKatLokal(item.jenis, item.kategori);
 
+    if (S.editing && S.editing.pending) {
+      /* Belum terkirim: ubah salinan di HP saja. Bila sedang dikirim, tunggu dulu. */
+      if (flushing) await flushing.catch(() => {});
+      const i = S.pending.findIndex((p) => p.id === S.editing.id);
+      if (i !== -1) {
+        S.pending[i] = Object.assign({ id: S.editing.id }, item); mut++; persist();
+        closeForm(); render(); toast('Perubahan tersimpan. Akan dikirim saat online.', 'ok');
+        if (navigator.onLine) sync(true);
+        return;
+      }
+      /* sudah terkirim sementara itu: lanjut ubah di spreadsheet */
+    }
     if (S.editing) {
       const old = S.editing, btn = $('fSave');
       btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Menyimpan';
@@ -935,6 +1031,25 @@ if (typeof document !== 'undefined') (function () {
 
   $('fDelete').onclick = async () => {
     const x = S.editing; if (!x) return;
+    if (x.pending) {
+      if (!(await confirmBox('Hapus transaksi ini?', x.kategori + ' ' + rp(x.nominal) + ' belum terkirim dan akan dihapus dari HP ini.', 'Hapus'))) return;
+      if (flushing) await flushing.catch(() => {});
+      if (S.pending.some((p) => p.id === x.id)) {
+        S.pending = S.pending.filter((p) => p.id !== x.id); mut++; persist();
+        closeForm(); render(); toast('Transaksi dihapus', 'ok');
+        return;
+      }
+      /* sudah terkirim sementara itu: hapus juga dari spreadsheet */
+      try {
+        await api('delete', { id: x.id, jenis: x.jenis });
+        S.tx = S.tx.filter((t) => t.id !== x.id); mut++; persist();
+        closeForm(); render(); toast('Transaksi dihapus', 'ok');
+      } catch (err) {
+        if (err.auth) { showGate(err.message); return; }
+        toast('Gagal menghapus. ' + err.message, 'warn');
+      }
+      return;
+    }
     if (!(await confirmBox('Hapus transaksi ini?', x.kategori + ' ' + rp(x.nominal) + ' pada ' + tglPendek(x.tanggal) + ' akan dihapus dari spreadsheet.', 'Hapus'))) return;
     const btn = $('fDelete'); btn.disabled = true; btn.textContent = 'Menghapus…';
     try {
