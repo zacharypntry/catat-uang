@@ -1,4 +1,4 @@
-/* CATAT UANG — logika aplikasi (app.js) */
+/* ARTA — logika aplikasi (app.js) */
 'use strict';
 
 /* =====================================================================
@@ -255,7 +255,7 @@ if (typeof document !== 'undefined') (function () {
     same: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 9h14M5 15h14"/></svg>',
     ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/></svg>',
-    box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 9v6M9 12h6"/></svg>',
+    box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h4.2a3.3 3.3 0 0 0 6.6 0h4.2V17a3 3 0 0 1-3 3h-9a3 3 0 0 1-3-3z"/><circle cx="12" cy="14" r="1.1" fill="currentColor" stroke="none"/></svg>',
     find: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>',
   };
 
@@ -708,7 +708,7 @@ if (typeof document !== 'undefined') (function () {
     }
   };
 
-  const VERSI_APP = '1.4';
+  const VERSI_APP = '1.5';
   function renderAtur() {
     $('sVersi').textContent = 'Versi aplikasi ' + VERSI_APP + ', pembaca struk ' + (window.Struk ? window.Struk.VERSI || 1 : '-') + '.';
     renderKatAdmin();
