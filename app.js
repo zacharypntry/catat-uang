@@ -721,7 +721,7 @@ if (typeof document !== 'undefined') (function () {
     }
   };
 
-  const VERSI_APP = '1.6.2';
+  const VERSI_APP = '1.6.3';
   function renderAtur() {
     $('sVersi').textContent = 'Versi aplikasi ' + VERSI_APP + ', pembaca struk ' + (window.Struk ? window.Struk.VERSI || 1 : '-') + '.';
     renderKatAdmin();
@@ -783,6 +783,9 @@ if (typeof document !== 'undefined') (function () {
     } catch (err) { galatPengingat(err); }
     btn.textContent = 'Coba notifikasi'; kunciPengingat(false);
   };
+
+  /* Pemudar di bawah status bar hanya saat halaman digulir (di posisi atas ia menutupi cahaya latar) */
+  addEventListener('scroll', () => document.body.classList.toggle('gulir', (document.scrollingElement || document.body).scrollTop > 4), { passive: true, capture: true });
 
   /* Sentuh di luar donat: tengahnya kembali ke total */
   document.addEventListener('pointerdown', (e) => { if (e.target.id !== 'cDonut' && S.donutReset) S.donutReset(); });
