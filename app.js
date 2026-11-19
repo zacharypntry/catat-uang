@@ -579,16 +579,22 @@ if (typeof document !== 'undefined') (function () {
     const hasChart = typeof window.Chart !== 'undefined';
     $('chartOffline').hidden = hasChart;
 
-    /* Donat: 5 kategori terbesar + Lainnya */
+    /* Donat: semua kategori bila ≤ 6; lebih dari itu 5 terbesar + Lainnya (rinciannya tetap di daftar) */
     const cats = sortedCats(sum.cat);
     $('donutArea').hidden = !cats.length; $('donutEmpty').hidden = !!cats.length;
     if (!cats.length) $('donutEmpty').innerHTML = emptyBox(I.top, 'Belum ada pengeluaran', 'Tidak ada pengeluaran pada periode ini.');
     const colors = catColors(list);
-    const top = cats.slice(0, 5).map((c) => ({ name: c.name, total: c.total, color: colors[c.name] }));
-    const rest = cats.slice(5).reduce((a, c) => a + c.total, 0);
-    if (rest > 0) top.push({ name: 'Lainnya (' + (cats.length - 5) + ' kategori)', total: rest, color: cssVar('--s0') });
-    $('donutTotal').textContent = rp(sum.keluar);
-    $('donutLegend').innerHTML = top.map((c) => '<div class="li"><i class="sw" style="background:' + c.color + '"></i><span class="nm">' + esc(c.name) + '</span><span class="pc num">' + Math.round(c.total / sum.keluar * 100) + '%</span><span class="am num">' + rp(c.total) + '</span></div>').join('');
+    const nTop = cats.length <= 6 ? 6 : 5;
+    const top = cats.slice(0, nTop).map((c) => ({ name: c.name, total: c.total, color: colors[c.name] }));
+    const sisa = cats.slice(nTop);
+    if (sisa.length) top.push({ name: 'Lainnya (' + sisa.length + ' kategori)', total: sisa.reduce((a, c) => a + c.total, 0), color: cssVar('--s0'), sisa: sisa });
+    const pct = (v) => Math.round(v / sum.keluar * 100) + '%';
+    const baris = (c, sub) => '<div class="li' + (sub ? ' sub' : '') + '"><i class="sw" style="background:' + (sub ? 'transparent' : c.color) + '"></i><span class="nm">' + esc(c.name) +
+      '</span><span class="pc num">' + pct(c.total) + '</span><span class="am num">' + rp(c.total) + '</span></div>';
+    $('donutLegend').innerHTML = top.map((c) => baris(c) + (c.sisa ? c.sisa.map((x) => baris(x, true)).join('') : '')).join('');
+    /* Tengah donat menampilkan total, atau irisan yang sedang disentuh (pengganti tooltip yang menutupi teks) */
+    const tengah = (c) => { $('donutLabel').textContent = c ? c.name : 'Total keluar'; $('donutTotal').textContent = c ? rp(c.total) + ' · ' + pct(c.total) : rp(sum.keluar); };
+    tengah(); S.donutReset = () => tengah();
 
     /* Tabel pemasukan vs pengeluaran selalu tersedia, juga saat grafik gagal dimuat */
     const months = monthlyTotals(list, t, 6);
@@ -607,8 +613,8 @@ if (typeof document !== 'undefined') (function () {
       type: 'doughnut',
       data: { labels: top.map((c) => c.name), datasets: [{ data: top.map((c) => c.total), backgroundColor: top.map((c) => c.color), borderColor: surface, borderWidth: 2, hoverOffset: 4 }] },
       options: { maintainAspectRatio: false, cutout: '70%', animation: { duration: 400 },
-        plugins: { legend: { display: false }, tooltip: { padding: 10, cornerRadius: 10, boxPadding: 4,
-          callbacks: { label: (c) => ' ' + rp(c.parsed) + ' (' + Math.round(c.parsed / sum.keluar * 100) + '%)' } } } },
+        onHover: (e, el) => tengah(el.length ? top[el[0].index] : null),
+        plugins: { legend: { display: false }, tooltip: { enabled: false } } },
     });
 
     const bar = { backgroundColor: cOut, borderRadius: 4, maxBarThickness: 22, categoryPercentage: 0.72, barPercentage: 0.9 };
@@ -708,7 +714,7 @@ if (typeof document !== 'undefined') (function () {
     }
   };
 
-  const VERSI_APP = '1.5';
+  const VERSI_APP = '1.5.1';
   function renderAtur() {
     $('sVersi').textContent = 'Versi aplikasi ' + VERSI_APP + ', pembaca struk ' + (window.Struk ? window.Struk.VERSI || 1 : '-') + '.';
     renderKatAdmin();
@@ -770,6 +776,10 @@ if (typeof document !== 'undefined') (function () {
     } catch (err) { galatPengingat(err); }
     btn.textContent = 'Coba notifikasi'; kunciPengingat(false);
   };
+
+  /* Sentuh di luar donat: tengahnya kembali ke total */
+  document.addEventListener('pointerdown', (e) => { if (e.target.id !== 'cDonut' && S.donutReset) S.donutReset(); });
+  $('cDonut').addEventListener('mouseleave', () => S.donutReset && S.donutReset());
 
   function render() {
     if ($('app').hidden) return;

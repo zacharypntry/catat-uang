@@ -187,6 +187,10 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .legend .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
 .legend .pc{color:var(--muted);width:42px;text-align:right}
 .legend .am{font-weight:700}
+.legend .li.sub{border-top:0;padding:3px 0 3px 22px;font-size:12.5px;color:var(--text2)}
+.legend .li.sub .nm,.legend .li.sub .am{font-weight:500}
+.donutmid>div{max-width:62%}
+.donutmid small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .keys{display:flex;gap:16px;margin-top:10px;font-size:12.5px;color:var(--text2);font-weight:600}
 .keys span{display:flex;align-items:center;gap:6px}
 details{margin-top:10px}
@@ -385,7 +389,7 @@ th{font-weight:600;color:var(--muted);border-top:0}
       <h2 class="title">Pengeluaran per kategori</h2>
       <p class="sub" id="aRangeLabel"></p>
       <div id="donutArea">
-        <div class="donutwrap"><canvas id="cDonut" role="img" aria-label="Grafik donat pengeluaran per kategori"></canvas><div class="donutmid"><div><small>Total keluar</small><b class="num" id="donutTotal"></b></div></div></div>
+        <div class="donutwrap"><canvas id="cDonut" role="img" aria-label="Grafik donat pengeluaran per kategori"></canvas><div class="donutmid"><div><small id="donutLabel">Total keluar</small><b class="num" id="donutTotal"></b></div></div></div>
         <div class="legend" id="donutLegend"></div>
       </div>
       <div id="donutEmpty" hidden></div>
