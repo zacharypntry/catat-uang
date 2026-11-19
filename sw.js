@@ -2,7 +2,7 @@
    1. File aplikasi selalu diambil versi terbarunya dari internet; salinan tersimpan dipakai saat offline/lambat.
    2. Menerima bukti transaksi yang dibagikan dari aplikasi bank (menu "Bagikan").
    Data transaksi TIDAK lewat sini; itu langsung ke Google Apps Script. */
-const VERSI = 'catat-uang-v10';
+const VERSI = 'catat-uang-v11';
 const KIRIMAN = 'catat-uang-kiriman';
 const INTI = ['./', './index.html', './app.js', './struk.js', './manifest.json', './icon-192.png', './icon-512.png'];
 const BATAS_TUNGGU = 1500; // ms; lebih lama dari ini, pakai salinan tersimpan dulu
