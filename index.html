@@ -67,6 +67,9 @@ button{cursor:pointer;border:0;background:none;padding:0}
     radial-gradient(360px 260px at 92% 6%,var(--glow2),transparent 70%),
     radial-gradient(300px 220px at 55% 38%,var(--glow3),transparent 72%);
 }
+/* Status bar Android selalu polos: isi yang digulir memudar ke warnanya, bukan terpotong tajam */
+body::before{content:"";position:fixed;left:0;right:0;top:0;z-index:15;pointer-events:none;
+  height:calc(env(safe-area-inset-top) + 28px);background:linear-gradient(var(--bg) 35%,transparent)}
 .app{position:relative;z-index:1;max-width:520px;margin:0 auto;min-height:100%;
   padding:calc(env(safe-area-inset-top) + 14px) 18px calc(env(safe-area-inset-bottom) + 112px)}
 
