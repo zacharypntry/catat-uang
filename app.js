@@ -187,7 +187,7 @@ if (typeof document !== 'undefined') (function () {
     hasCache: store.get('cu_tx', null) !== null,
     period: store.get('cu_period', 'bulan'),
     cs: '', ce: '',
-    view: 'beranda', trend: 'harian',
+    view: 'beranda', trend: 'harian', donutJenis: 'pengeluaran',
     hist: { q: '', jenis: 'semua', kat: '', from: '', to: '', limit: 60 },
     editing: null, formJenis: 'pengeluaran',
     theme: store.get('cu_theme', 'sistem'),
@@ -540,9 +540,9 @@ if (typeof document !== 'undefined') (function () {
   /* ---------- Analisis ---------- */
   const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   /* Warna mengikuti kategori (urutan total sepanjang waktu), bukan peringkat di periode */
-  function catColors(list) {
+  function catColors(list, jenis) {
     const totals = {};
-    list.forEach((x) => { if (x.jenis === 'pengeluaran') totals[x.kategori] = (totals[x.kategori] || 0) + x.nominal; });
+    list.forEach((x) => { if (x.jenis === jenis) totals[x.kategori] = (totals[x.kategori] || 0) + x.nominal; });
     const map = {};
     sortedCats(totals).forEach((c, i) => { map[c.name] = i < 8 ? cssVar('--s' + (i + 1)) : cssVar('--s0'); });
     return map;
@@ -580,20 +580,26 @@ if (typeof document !== 'undefined') (function () {
     $('chartOffline').hidden = hasChart;
 
     /* Donat: semua kategori bila ≤ 6; lebih dari itu 5 terbesar + Lainnya (rinciannya tetap di daftar) */
-    const cats = sortedCats(sum.cat);
+    const jn = S.donutJenis, masuk = jn === 'pemasukan';
+    const catObj = {}; let total = 0;
+    list.forEach((x) => { if (x.jenis === jn && x.tanggal >= r.s && x.tanggal <= r.e) { catObj[x.kategori] = (catObj[x.kategori] || 0) + x.nominal; total += x.nominal; } });
+    const cats = sortedCats(catObj);
+    $('aDonutJenis').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === jn)));
+    $('donutTitle').textContent = (masuk ? 'Pemasukan' : 'Pengeluaran') + ' per kategori';
+    $('cDonut').setAttribute('aria-label', 'Grafik donat ' + jn + ' per kategori');
     $('donutArea').hidden = !cats.length; $('donutEmpty').hidden = !!cats.length;
-    if (!cats.length) $('donutEmpty').innerHTML = emptyBox(I.top, 'Belum ada pengeluaran', 'Tidak ada pengeluaran pada periode ini.');
-    const colors = catColors(list);
+    if (!cats.length) $('donutEmpty').innerHTML = emptyBox(I.top, 'Belum ada ' + jn, 'Tidak ada ' + jn + ' pada periode ini.');
+    const colors = catColors(list, jn);
     const nTop = cats.length <= 6 ? 6 : 5;
     const top = cats.slice(0, nTop).map((c) => ({ name: c.name, total: c.total, color: colors[c.name] }));
     const sisa = cats.slice(nTop);
     if (sisa.length) top.push({ name: 'Lainnya (' + sisa.length + ' kategori)', total: sisa.reduce((a, c) => a + c.total, 0), color: cssVar('--s0'), sisa: sisa });
-    const pct = (v) => Math.round(v / sum.keluar * 100) + '%';
+    const pct = (v) => Math.round(v / total * 100) + '%';
     const baris = (c, sub) => '<div class="li' + (sub ? ' sub' : '') + '"><i class="sw" style="background:' + (sub ? 'transparent' : c.color) + '"></i><span class="nm">' + esc(c.name) +
       '</span><span class="pc num">' + pct(c.total) + '</span><span class="am num">' + rp(c.total) + '</span></div>';
     $('donutLegend').innerHTML = top.map((c) => baris(c) + (c.sisa ? c.sisa.map((x) => baris(x, true)).join('') : '')).join('');
     /* Tengah donat menampilkan total, atau irisan yang sedang disentuh (pengganti tooltip yang menutupi teks) */
-    const tengah = (c) => { $('donutLabel').textContent = c ? c.name : 'Total keluar'; $('donutTotal').textContent = c ? rp(c.total) + ' · ' + pct(c.total) : rp(sum.keluar); };
+    const tengah = (c) => { $('donutLabel').textContent = c ? c.name : (masuk ? 'Total masuk' : 'Total keluar'); $('donutTotal').textContent = c ? rp(c.total) + ' · ' + pct(c.total) : rp(total); };
     tengah(); S.donutReset = () => tengah();
 
     /* Tabel pemasukan vs pengeluaran selalu tersedia, juga saat grafik gagal dimuat */
@@ -642,6 +648,7 @@ if (typeof document !== 'undefined') (function () {
       options: barOptions((items) => months[items[0].dataIndex].label + ' ' + months[items[0].dataIndex].year),
     });
   }
+  $('aDonutJenis').onclick = (e) => { const b = e.target.closest('button'); if (b) { S.donutJenis = b.dataset.v; renderAnalisis(); } };
   $('aTrend').onclick = (e) => { const b = e.target.closest('button'); if (b) { S.trend = b.dataset.v; renderAnalisis(); } };
 
   /* ---------- Atur ---------- */
@@ -714,7 +721,7 @@ if (typeof document !== 'undefined') (function () {
     }
   };
 
-  const VERSI_APP = '1.5.1';
+  const VERSI_APP = '1.6';
   function renderAtur() {
     $('sVersi').textContent = 'Versi aplikasi ' + VERSI_APP + ', pembaca struk ' + (window.Struk ? window.Struk.VERSI || 1 : '-') + '.';
     renderKatAdmin();

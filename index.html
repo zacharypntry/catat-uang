@@ -386,8 +386,11 @@ th{font-weight:600;color:var(--muted);border-top:0}
     <div class="chips block" data-period></div>
     <div class="block two" data-custom hidden></div>
     <div class="card block">
-      <h2 class="title">Pengeluaran per kategori</h2>
+      <h2 class="title" id="donutTitle">Pengeluaran per kategori</h2>
       <p class="sub" id="aRangeLabel"></p>
+      <div class="seg" id="aDonutJenis" style="margin-top:10px">
+        <button data-v="pengeluaran" aria-pressed="true">Pengeluaran</button><button data-v="pemasukan" aria-pressed="false">Pemasukan</button>
+      </div>
       <div id="donutArea">
         <div class="donutwrap"><canvas id="cDonut" role="img" aria-label="Grafik donat pengeluaran per kategori"></canvas><div class="donutmid"><div><small id="donutLabel">Total keluar</small><b class="num" id="donutTotal"></b></div></div></div>
         <div class="legend" id="donutLegend"></div>
