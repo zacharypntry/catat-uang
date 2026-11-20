@@ -59,7 +59,11 @@
         let skor = 0;
         if (/total|grand total/.test(k)) skor += 50;
         if (/jumlah|nominal|amount|nilai|bayar|dibayar|transfer|pembayaran|menerima|diterima/.test(k)) skor += 30;
-        if (/biaya|admin|fee|diskon|discount|cashback|potongan|promo|pajak|tax|tip/.test(k) && !/total/.test(k)) skor -= 40;
+        if (/biaya|admin|fee|pajak|tax|tip|ppn|service/.test(k) && !/total/.test(k)) skor -= 40;
+        // Struk kertas: "TOTAL DISKON", "Subtotal", "TUNAI 100.000 / KEMBALI", "TOTAL ITEM : 8"
+        if (/diskon|discount|cashback|potongan|promo|hemat/.test(k)) skor -= 60;
+        if (/sub ?total/.test(k)) skor -= 15;
+        if (/kembali|kembalian|change|\bitem\b|\bqty\b/.test(k)) skor -= 100;
         if (/saldo|balance|limit|poin|point|sisa|available/.test(k)) skor -= 100;
         if (sendirian && huruf(l) < 3) skor += 20; // angka besar sendirian (gaya QRIS / e-wallet)
         kandidat.push({ nilai, skor, i });
@@ -174,7 +178,13 @@
     const baris = rapikan(teks);
     const semua = baris.join('\n');
     const masuk = /dana masuk|uang masuk|transfer masuk|(?:kamu|anda|telah)\s+menerima|diterima dari|received from|incoming transfer|money received/i.test(semua);
-    const pihak = cariPihak(baris, masuk);
+    let pihak = cariPihak(baris, masuk);
+    // Struk kertas toko/restoran: nama toko biasanya baris pertama yang berisi kata
+    const kertas = /tunai|kembali|subtotal|kasir|terima ?kasih|harga jual|\bmeja\b|\bppn\b/i.test(semua);
+    if (!pihak && kertas) {
+      const nama = baris.slice(0, 3).find((l) => huruf(l) >= 4 && !/\d{3}|^(jl|jalan|npwp|telp|tgl)\b/i.test(l));
+      if (nama) pihak = bersihkanNama(nama);
+    }
     const berita = cariBerita(baris);
     const qris = /\b[qgo0]r[i1l]s\b/i.test(semua); // "GRIS"/"0RIS": salah baca umum untuk QRIS
     const transfer = /transfer|pindah dana|kirim uang/i.test(semua);

@@ -493,7 +493,12 @@ th{font-weight:600;color:var(--muted);border-top:0}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>
       <span>Isi otomatis dari bukti transaksi<small>Pilih tangkapan layar dari galeri</small></span>
     </button>
+    <button type="button" class="strukbtn" id="fKameraBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      <span>Foto struk kertas<small>Letakkan di tempat terang, foto lurus dari atas</small></span>
+    </button>
     <input type="file" id="fStrukFile" accept="image/*" hidden>
+    <input type="file" id="fKameraFile" accept="image/*" capture="environment" hidden>
     <div class="strukinfo" id="fStrukInfo" hidden aria-live="polite">
       <button type="button" class="thumb" id="fThumb" aria-label="Lihat bukti transaksi"><img id="fThumbImg" alt=""></button>
       <div class="si"><b id="fStrukTitle"></b><span id="fStrukText"></span><button type="button" class="link small" id="fStrukTeksBtn" hidden style="padding:0">Lihat teks yang terbaca</button><div class="bar" id="fStrukBarBox"><i id="fStrukBar"></i></div></div>

@@ -724,7 +724,7 @@ if (typeof document !== 'undefined') (function () {
     }
   };
 
-  const VERSI_APP = '1.7.1';
+  const VERSI_APP = '1.8';
   function renderAtur() {
     $('sVersi').textContent = 'Versi aplikasi ' + VERSI_APP + ', pembaca struk ' + (window.Struk ? window.Struk.VERSI || 1 : '-') + '.';
     renderKatAdmin();
@@ -865,7 +865,7 @@ if (typeof document !== 'undefined') (function () {
   function openForm(x, tanpaFokus) {
     S.editing = x; formTerbuka = true;
     disentuh.clear(); resetStruk();
-    $('fStrukBtn').hidden = !!x;
+    $('fStrukBtn').hidden = $('fKameraBtn').hidden = !!x;
     $('fTitle').textContent = x ? 'Ubah transaksi' : 'Tambah transaksi';
     $('fNominal').value = x ? Number(x.nominal).toLocaleString('id-ID') : '';
     S.formKat = x ? x.kategori : ''; S.formKatBaru = [];
@@ -925,7 +925,7 @@ if (typeof document !== 'undefined') (function () {
     else if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     resetStruk();
     const token = strukToken;
-    $('fStrukBtn').hidden = true;
+    $('fStrukBtn').hidden = $('fKameraBtn').hidden = true;
     $('fThumb').hidden = !file;
     if (file) { strukUrl = URL.createObjectURL(file); $('fThumbImg').src = strukUrl; strukKecil = kecilkanGambar(file).catch(() => ''); }
     statusStruk('Membaca bukti transaksi', 'Biasanya beberapa detik. Pertama kali sedikit lebih lama.', file ? 0 : null);
@@ -981,7 +981,11 @@ if (typeof document !== 'undefined') (function () {
     if (window.Struk) window.Struk.siapkanPekerja().catch(() => {}); // panaskan pembaca selagi memilih gambar
     $('fStrukFile').click();
   };
-  $('fStrukFile').onchange = (e) => {
+  $('fKameraBtn').onclick = () => {
+    if (window.Struk) window.Struk.siapkanPekerja().catch(() => {});
+    $('fKameraFile').click();
+  };
+  $('fKameraFile').onchange = $('fStrukFile').onchange = (e) => {
     const f = e.target.files && e.target.files[0];
     e.target.value = '';
     if (f) isiDariStruk(f, '');
