@@ -1,4 +1,4 @@
-/* CATAT UANG — pembaca bukti transaksi (struk.js)
+/* ARTA — pembaca bukti transaksi (struk.js)
    1. bacaGambar(): mengubah gambar struk menjadi teks, di HP sendiri (gambar tidak dikirim ke mana pun).
    2. uraiStruk(): mengambil nominal, tanggal, jenis, dan pihak lawan dari teks itu. */
 'use strict';

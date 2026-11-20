@@ -198,7 +198,9 @@ if (typeof document !== 'undefined') (function () {
   const all = () => S.tx.concat(S.pending.map((p) => Object.assign({ pending: true }, p)));
   let peringatanSimpan = false;
   const persist = () => {
-    const ok = store.set('cu_pending', S.pending);
+    let ok = store.set('cu_pending', S.pending);
+    /* HP penuh: simpan antrean tanpa gambar struk dulu, supaya transaksinya sendiri tidak hilang */
+    if (!ok) ok = store.set('cu_pending', S.pending.map((p) => Object.assign({}, p, { struk: undefined })));
     store.set('cu_tx', S.tx); store.set('cu_kat', S.kat);
     if (!ok && S.pending.length && !peringatanSimpan) {
       peringatanSimpan = true;
@@ -340,6 +342,7 @@ if (typeof document !== 'undefined') (function () {
       while (S.pending.length) {
         const p = S.pending[0];
         const saved = await api('add', p);
+        if (saved.strukGagal) { toast(saved.strukGagal, 'warn'); delete saved.strukGagal; }
         S.pending = S.pending.filter((q) => q.id !== p.id); S.tx.push(saved); mut++; persist();
       }
     })().finally(() => { flushing = null; });
@@ -721,7 +724,7 @@ if (typeof document !== 'undefined') (function () {
     }
   };
 
-  const VERSI_APP = '1.6.3';
+  const VERSI_APP = '1.7.1';
   function renderAtur() {
     $('sVersi').textContent = 'Versi aplikasi ' + VERSI_APP + ', pembaca struk ' + (window.Struk ? window.Struk.VERSI || 1 : '-') + '.';
     renderKatAdmin();
@@ -841,8 +844,9 @@ if (typeof document !== 'undefined') (function () {
   const disentuh = new Set();
   let strukUrl = '', strukToken = 0;
   let teksTerbaca = '';
+  let strukKecil = null; /* Promise berisi gambar struk yang diperkecil (data URL), ikut disimpan ke Drive */
   function resetStruk() {
-    teksTerbaca = ''; $('fStrukTeksBtn').hidden = true;
+    teksTerbaca = ''; $('fStrukTeksBtn').hidden = true; strukKecil = null;
     strukToken++;
     if (strukUrl) { URL.revokeObjectURL(strukUrl); strukUrl = ''; }
     $('fStrukInfo').hidden = true; $('fStrukInfo').classList.remove('warn');
@@ -923,7 +927,7 @@ if (typeof document !== 'undefined') (function () {
     const token = strukToken;
     $('fStrukBtn').hidden = true;
     $('fThumb').hidden = !file;
-    if (file) { strukUrl = URL.createObjectURL(file); $('fThumbImg').src = strukUrl; }
+    if (file) { strukUrl = URL.createObjectURL(file); $('fThumbImg').src = strukUrl; strukKecil = kecilkanGambar(file).catch(() => ''); }
     statusStruk('Membaca bukti transaksi', 'Biasanya beberapa detik. Pertama kali sedikit lebih lama.', file ? 0 : null);
 
     let teks = teksKiriman || '';
@@ -962,6 +966,16 @@ if (typeof document !== 'undefined') (function () {
       statusStruk('Terisi dari bukti transaksi', kat ? 'Kategori "' + kat + '" seperti transaksi sebelumnya. Periksa lalu simpan.' : 'Tinggal pilih kategori, lalu simpan.', null, false);
     }
     if (!d.nominal) $('fNominal').focus();
+  }
+  /* Perkecil ke lebar ≤ 900 px, JPEG: cukup jelas dibaca, ~100–300 KB */
+  async function kecilkanGambar(file) {
+    const img = await new Promise((ok, gagal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = gagal; i.src = URL.createObjectURL(file); });
+    const k = Math.min(1, 900 / img.naturalWidth, 2600 / img.naturalHeight);
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(img.src);
+    return c.toDataURL('image/jpeg', 0.72);
   }
   $('fStrukBtn').onclick = () => {
     if (window.Struk) window.Struk.siapkanPekerja().catch(() => {}); // panaskan pembaca selagi memilih gambar
@@ -1012,7 +1026,7 @@ if (typeof document !== 'undefined') (function () {
       if (flushing) await flushing.catch(() => {});
       const i = S.pending.findIndex((p) => p.id === S.editing.id);
       if (i !== -1) {
-        S.pending[i] = Object.assign({ id: S.editing.id }, item); mut++; persist();
+        S.pending[i] = Object.assign({ id: S.editing.id, struk: S.pending[i].struk }, item); mut++; persist();
         closeForm(); render(); toast('Perubahan tersimpan. Akan dikirim saat online.', 'ok');
         if (navigator.onLine) sync(true);
         return;
@@ -1037,6 +1051,8 @@ if (typeof document !== 'undefined') (function () {
 
     /* Transaksi baru: langsung tampil, pengiriman berjalan di belakang */
     item.id = newId();
+    const kecil = strukKecil; formTerbuka = false; /* tunggu gambar tanpa membuka celah ketuk ganda */
+    if (kecil) { const g = await kecil; if (g) item.struk = g; }
     S.pending.push(item); persist();
     closeForm(); render();
     try {
