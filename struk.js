@@ -121,7 +121,7 @@
     s = String(s || '')
       .replace(/\b\d[\d\s\-*xX]{3,}\b/g, ' ')        // nomor rekening / telepon
       .replace(/\b(?=[A-Z0-9-]*\d)(?=[A-Z0-9-]*[A-Z])[A-Z0-9-]{8,}\b/g, ' ') // kode transaksi, mis. A-A3FBB2OGWXQRAV
-      .replace(/[*?#^~]+/g, ' ')
+      .replace(/[*?#^~“”"‘’`]+/g, ' ')
       .replace(/\b(?:bank|rek(?:ening)?|a\/n|an\.?)\b\s*$/i, '')
       .replace(/[|•·]+/g, ' ')
       .replace(/\s+-\s*$/, '')
@@ -182,8 +182,23 @@
     // Struk kertas toko/restoran: nama toko biasanya baris pertama yang berisi kata
     const kertas = /tunai|kembali|subtotal|kasir|terima ?kasih|harga jual|\bmeja\b|\bppn\b/i.test(semua);
     if (!pihak && kertas) {
-      const nama = baris.slice(0, 3).find((l) => huruf(l) >= 4 && !/\d{3}|^(jl|jalan|npwp|telp|tgl)\b/i.test(l));
-      if (nama) pihak = bersihkanNama(nama);
+      // Logo sering terbaca acak: utamakan baris yang namanya muncul lagi di struk (mis. akun media sosial)
+      const rapat = (x) => x.toLowerCase().replace(/[^a-z]/g, '');
+      const isi = rapat(semua);
+      const skor = (l) => {
+        const r = rapat(l);
+        const ulang = r.length >= 5 && isi.indexOf(r) !== isi.lastIndexOf(r) ? 10 : 0;
+        return Math.max.apply(null, l.split(/\s+/).map((w) => w.replace(/[^a-z]/gi, '').length)) + ulang;
+      };
+      const calon = baris.slice(0, 4).filter((l) => huruf(l) >= 4 &&
+        !/\d{3}|^(jl|jalan|npwp|telp|tgl)\b|\b(jl|jalan|tower|apart\w*|kota|blok|ruko|lantai)\b/i.test(l));
+      const nama = calon.reduce((m, l) => (!m || skor(l) > skor(m) ? l : m), '');
+      // Kepala struk terpotong OCR ("otivat ion Coffee"), versi utuhnya di bawah ("Motivationcoffee.id")
+      const r = rapat(nama);
+      const utuh = r.length >= 5 && semua.split(/\s+/).map((w) => w.replace(/\.(id|com|co)$/i, '')).find((w) => {
+        const rw = rapat(w); return rw !== r && rw.indexOf(r) !== -1 && rw.length <= r.length + 3;
+      });
+      if (nama) pihak = bersihkanNama(utuh ? utuh.replace(/[^a-z]/gi, '').replace(/^./, (c) => c.toUpperCase()) : nama);
     }
     const berita = cariBerita(baris);
     const qris = /\b[qgo0]r[i1l]s\b/i.test(semua); // "GRIS"/"0RIS": salah baca umum untuk QRIS
@@ -267,21 +282,46 @@
         img.src = URL.createObjectURL(file);
       });
     }
-    const w0 = src.width, h0 = src.height;
-    const skala = Math.min(w0 < 900 ? 900 / w0 : 1400 / Math.max(w0, 1400), 3);
-    const w = Math.round(w0 * skala), h = Math.round(h0 * skala);
+    const W0 = src.width, H0 = src.height;
+    // Analisis cepat di kanvas kecil: mode gelap? dan di mana kertas putihnya (foto struk kertas di atas meja)?
+    const aw = 240, ah = Math.max(1, Math.round(H0 * aw / W0));
+    const a = document.createElement('canvas'); a.width = aw; a.height = ah;
+    const actx = a.getContext('2d', { willReadFrequently: true });
+    actx.drawImage(src, 0, 0, aw, ah);
+    const ap = actx.getImageData(0, 0, aw, ah).data;
+    const terang = new Uint8Array(aw * ah); let gelap = 0;
+    for (let k = 0, i = 0; i < ap.length; i += 4, k++) {
+      const y = 0.299 * ap[i] + 0.587 * ap[i + 1] + 0.114 * ap[i + 2];
+      if (y < 60) gelap++; if (y > 130) terang[k] = 1;
+    }
+    const balik = gelap / (aw * ah) > 0.6; // layar mode gelap: hampir semuanya gelap
+    let sx = 0, sy = 0, sw = W0, sh = H0;
+    if (!balik) {
+      const kol = (x) => { let n = 0; for (let y = 0; y < ah; y++) n += terang[y * aw + x]; return n / ah; };
+      let x0 = 0, x1 = aw - 1;
+      while (x0 < aw && kol(x0) < 0.3) x0++;
+      while (x1 > x0 && kol(x1) < 0.3) x1--;
+      const bar = (y) => { let n = 0; for (let x = x0; x <= x1; x++) n += terang[y * aw + x]; return n / (x1 - x0 + 1); };
+      let y0 = 0, y1 = ah - 1;
+      while (y0 < ah && bar(y0) < 0.5) y0++;
+      while (y1 > y0 && bar(y1) < 0.5) y1--;
+      // Potong hanya bila jelas ada kertas yang lebih kecil dari fotonya (tangkapan layar tidak terpotong)
+      if (x1 - x0 > aw * 0.15 && y1 - y0 > ah * 0.15 && (x1 - x0) * (y1 - y0) < aw * ah * 0.8) {
+        const mx = aw * 0.04, my = ah * 0.02, k = W0 / aw;
+        sx = Math.max(0, (x0 - mx) * k); sy = Math.max(0, (y0 - my) * k);
+        sw = Math.min(W0, (x1 + mx) * k) - sx; sh = Math.min(H0, (y1 + my) * k) - sy;
+      }
+    }
+    const skala = Math.min(sw < 900 ? 900 / sw : 1400 / Math.max(sw, 1400), 3);
+    const w = Math.round(sw * skala), h = Math.round(sh * skala);
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const ctx = c.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(src, 0, 0, w, h);
+    ctx.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h), px = data.data;
-    let total = 0;
     for (let i = 0; i < px.length; i += 4) {
       const y = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-      px[i] = px[i + 1] = px[i + 2] = y; total += y;
-    }
-    if (total / (px.length / 4) < 110) {
-      for (let i = 0; i < px.length; i += 4) px[i] = px[i + 1] = px[i + 2] = 255 - px[i];
+      px[i] = px[i + 1] = px[i + 2] = balik ? 255 - y : y;
     }
     ctx.putImageData(data, 0, 0);
     return c;
